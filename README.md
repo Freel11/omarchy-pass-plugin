@@ -1,16 +1,19 @@
 # pass — Omarchy shell plugin
 
-A [pass](https://www.passwordstore.org/) integration overlay for the
-[Omarchy](https://omarchy.org/) shell. Search your password store from a
-keybinding, pick an entry, then copy, type, or generate an OTP without leaving
-the keyboard.
+A [pass](https://www.passwordstore.org/) integration for the
+[Omarchy](https://omarchy.org/) shell. Adds a key-glyph icon to the bar's
+right section — click it (or press a keybinding) to open a popover that
+searches your password store, then copy, type, or generate an OTP without
+leaving the keyboard.
 
-Built on the Omarchy plugin contract (Quickshell + QML) and themed through the
-shell's `Color.menu.*` / `Style.*` tokens, so it matches whatever theme is
-active.
+Built on the Omarchy plugin contract (Quickshell + QML) and themed through
+the bar's `foreground` / `Color.*` / `Style.*` tokens, so it matches whatever
+theme is active.
 
 ## Features
 
+- Key-glyph icon (󰌆) in the bar's right section, beside Tailscale/Bluetooth
+- Popover anchored under the icon — opens the same way other bar panels do
 - Fuzzy substring search over every `.gpg` entry in the store
 - Entries sorted by file mtime (most-recently-added first)
 - Per-entry action submenu:
@@ -18,10 +21,8 @@ active.
   - **Type password** — decrypts and types at the cursor via `wtype`
   - **Copy OTP** — `pass otp -c <entry>` (only shown when `pass-otp` is installed)
 - Omarchy notification on every successful action
-- Instant open/close (no-animation layer rule, `keepLoaded` manifest flag)
 - Honors `PASSWORD_STORE_DIR` for non-default store locations
-- No hardcoded paths — resolves its own directory via `manifest.__sourceDir`,
-  so it works from any install location
+- No hardcoded paths — resolves its own directory via `Qt.resolvedUrl`
 
 ## Requirements
 
@@ -51,6 +52,13 @@ git clone https://github.com/Freel11/omarchy-pass.git ~/.config/omarchy/plugins/
 omarchy plugin enable pass
 ```
 
+Add the widget to the bar's right section (it defaults to the right section
+per the manifest, but if the bar layout doesn't include it yet):
+
+```bash
+omarchy bar put pass --after omarchy.tailscale
+```
+
 The plugin is discovered automatically on the next shell rescan (usually within
 a second, via inotify). If it doesn't appear, force it:
 
@@ -61,7 +69,9 @@ omarchy plugin list --json | grep '"id":"pass"'
 
 ## Keybinding
 
-The plugin doesn't bind a key itself — add one in `~/.config/hypr/bindings.lua`:
+The plugin registers an IPC target (`pass`) that supports `open`, `close`,
+`toggle`, etc., so a keybinding works alongside the bar icon. Add one in
+`~/.config/hypr/bindings.lua`:
 
 ```lua
 o.bind("SUPER + CTRL + P", "Pass", "omarchy-shell shell toggle pass")
@@ -69,39 +79,33 @@ o.bind("SUPER + CTRL + P", "Pass", "omarchy-shell shell toggle pass")
 
 Then `hyprctl reload` to apply.
 
-## Optional: instant open/close
-
-To make the overlay appear without the default slide/fade (matching Omarchy's
-built-in overlays), add a layer rule in `~/.config/hypr/hyprland.lua`:
-
-```lua
-hl.layer_rule({ match = { namespace = "pass" }, no_anim = true, animation = "none" })
-```
-
 ## Usage
 
-1. Press your keybinding (e.g. `SUPER + CTRL + P`).
+1. Click the key-glyph icon in the bar (or press your keybinding).
 2. Type to filter entries (substring, case-insensitive).
 3. `Up` / `Down` to move the selection.
 4. `Enter` to open the action submenu for the selected entry.
-5. `Enter` on an action to run it (the overlay dismisses and a notification
+5. `Enter` on an action to run it (the popover dismisses and a notification
    confirms the result).
 6. `Esc` or `Left` from the actions submenu returns to the entry list.
 7. `Esc` from the entry list clears the filter; `Esc` again dismisses.
-8. Click outside the card to dismiss at any time.
+8. Click outside the popover to dismiss at any time.
 
 ## How it works
 
 | File              | Role                                                              |
-| ----------------- | ----------------------------------------------------------------- | ------------------------------- |
-| `manifest.json`   | Plugin contract: id, kinds (`overlay`), entry point, `keepLoaded` |
-| `Pass.qml`        | Overlay UI — list mode + actions mode, keyboard nav, theming      |
+| ----------------- | ----------------------------------------------------------------- |
+| `manifest.json`   | Plugin contract: id, kinds (`bar-widget`), entry point, barWidget metadata |
+| `Pass.qml`        | Bar icon + popover — list mode + actions mode, keyboard nav, theming |
 | `list-entries.sh` | Lists `*.gpg` files under `$PASSWORD_STORE_DIR`, sorted by mtime  |
-| `do-action.sh`    | Runs `pass show -c` / `pass show                                  | wtype`/`pass otp -c` + notifies |
+| `do-action.sh`    | Runs `pass show -c` / `pass show \| wtype`/`pass otp -c` + notifies |
 
-The overlay loads entries once per session (via a `Process` running
-`list-entries.sh`) and filters them in JS on each keystroke — no subprocess per
-key press. `pass-otp` availability is detected once at plugin load.
+The plugin extends Omarchy's `Panel` base (which owns the IPC open/close
+lifecycle) and uses `KeyboardPanel` for the popover (layer-shell popup anchored
+to the bar icon, with outside-click dismissal and keyboard focus). Entries are
+loaded once per session via a `Process` running `list-entries.sh` and filtered
+in JS on each keystroke — no subprocess per key press. `pass-otp` availability
+is detected once at plugin load.
 
 ## File layout
 

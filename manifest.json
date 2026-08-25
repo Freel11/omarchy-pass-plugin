@@ -3,11 +3,17 @@
   "id": "pass",
   "name": "Pass",
   "author": "Freel11",
-  "version": "0.1.0",
-  "description": "Search and act on pass(1) entries",
-  "kinds": ["overlay"],
-  "keepLoaded": true,
+  "version": "0.2.0",
+  "description": "Search and act on pass(1) entries from the Omarchy bar",
+  "kinds": ["bar-widget"],
   "entryPoints": {
-    "overlay": "Pass.qml"
+    "barWidget": "Pass.qml"
+  },
+  "barWidget": {
+    "displayName": "Pass",
+    "description": "Search your password store and copy, type, or OTP entries without leaving the keyboard.",
+    "category": "Security",
+    "allowMultiple": false,
+    "defaultSection": "right"
   }
 }
