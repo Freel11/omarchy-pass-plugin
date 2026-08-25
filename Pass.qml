@@ -61,6 +61,7 @@ Panel {
     root.selectedIndex = 0
     Qt.callLater(function() {
       if (entryList.count > 0) entryList.positionViewAtIndex(0, ListView.Contain)
+      if (entryList) entryList.forceActiveFocus()
     })
   }
 
@@ -81,15 +82,17 @@ Panel {
     root.selectedIndex = 0
     Qt.callLater(function() {
       if (entryList.count > 0) entryList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
+      if (searchBox) searchBox.forceActiveFocus()
     })
   }
 
   onOpenedChanged: if (opened) {
     if (root.entries.length === 0) entryLister.running = true
     root.filterText = ""
+    if (searchBox) searchBox.text = ""
     root.mode = "list"
     root.rebuildList()
-    Qt.callLater(function() { if (entryList) entryList.forceActiveFocus() })
+    Qt.callLater(function() { if (searchBox) searchBox.forceActiveFocus() })
   }
 
   Process {
@@ -130,32 +133,116 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: entryList
+    focusTarget: searchBox
     contentWidth: panel.fittedContentWidth(Style.space(380))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(500))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(560))
 
     Column {
       id: column
       anchors.fill: parent
-      spacing: Style.space(8)
+      spacing: Style.space(12)
 
-      Text {
-        id: headerText
-        width: parent.width
-        text: root.mode === "actions"
-          ? root.currentEntry
-          : (root.filterText || "Search pass...")
-        color: root.foreground
-        opacity: root.filterText || root.mode === "actions" ? 1 : 0.58
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.heading
-        elide: Text.ElideRight
-      }
+      // ---------- Header: key glyph + "Pass" + subtitle ----------
 
       Item {
         width: parent.width
-        implicitHeight: Math.min(Math.max(entryList.contentHeight, Style.space(200)), Style.space(400))
-        height: implicitHeight
+        implicitHeight: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight)
+
+        Text {
+          id: heroIcon
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          text: "󰌆"
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.display
+        }
+
+        Column {
+          id: heroLabels
+          anchors.left: heroIcon.right
+          anchors.leftMargin: Style.space(14)
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(2)
+
+          Text {
+            text: "Pass"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.title
+            font.bold: true
+            elide: Text.ElideRight
+            width: parent.width
+          }
+
+          Text {
+            text: root.mode === "actions"
+              ? root.currentEntry
+              : (root.entries.length + " entries")
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            font.letterSpacing: 1.2
+            elide: Text.ElideRight
+            width: parent.width
+          }
+        }
+      }
+
+      PanelSeparator {
+        foreground: root.foreground
+      }
+
+      // ---------- Search box (list mode only) ----------
+
+      TextField {
+        id: searchBox
+        width: parent.width
+        visible: root.mode === "list"
+        foreground: root.foreground
+        placeholderText: "Search pass..."
+        text: root.filterText
+        onTextChanged: {
+          root.filterText = text
+          root.rebuildList()
+        }
+        Keys.onPressed: function(event) {
+          if (event.key === Qt.Key_Escape) {
+            if (root.filterText) { root.setFilter(""); text = "" }
+            else root.close()
+            event.accepted = true
+          } else if (event.key === Qt.Key_Up) {
+            root.select(-1); event.accepted = true
+          } else if (event.key === Qt.Key_Down) {
+            root.select(1); event.accepted = true
+          } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (root.filteredEntries.length > 0) root.openActions(root.filteredEntries[root.selectedIndex])
+            event.accepted = true
+          }
+        }
+      }
+
+      PanelSeparator {
+        visible: root.mode === "list"
+        foreground: root.foreground
+      }
+
+      PanelSectionHeader {
+        visible: root.mode === "actions"
+        text: "ACTIONS"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+
+      // ---------- List ----------
+
+      Item {
+        width: parent.width
+        height: root.mode === "list"
+          ? Math.min(Math.max(entryList.contentHeight, Style.space(200)), Style.space(400))
+          : Math.min(Math.max(entryList.contentHeight, Style.space(120)), Style.space(280))
 
         ListView {
           id: entryList
@@ -164,31 +251,18 @@ Panel {
             ? root.filteredEntries
             : root.actions.map(function(a) { return a.label })
           clip: true
-          focus: true
           Keys.priority: Keys.BeforeItem
           Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Escape) {
-              if (root.mode === "actions") root.backToList()
-              else if (root.filterText) root.setFilter("")
-              else root.close()
-              event.accepted = true
-            } else if (event.key === Qt.Key_Left && root.mode === "actions") {
               root.backToList(); event.accepted = true
-            } else if (Util.editsFilter(event, root.filterText) && root.mode === "list") {
-              root.setFilter(Util.editedFilter(event, root.filterText)); event.accepted = true
+            } else if (event.key === Qt.Key_Left) {
+              root.backToList(); event.accepted = true
             } else if (event.key === Qt.Key_Up) {
               root.select(-1); event.accepted = true
             } else if (event.key === Qt.Key_Down) {
               root.select(1); event.accepted = true
             } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-              if (root.mode === "list") {
-                if (root.filteredEntries.length > 0) root.openActions(root.filteredEntries[root.selectedIndex])
-              } else root.performAction()
-              event.accepted = true
-            } else if (root.mode === "list" && event.text && event.text.length === 1
-                      && event.text.charCodeAt(0) >= 32
-                      && event.text.charCodeAt(0) !== 127) {
-              root.setFilter(root.filterText + event.text); event.accepted = true
+              root.performAction(); event.accepted = true
             }
           }
           delegate: Rectangle {
@@ -197,6 +271,19 @@ Panel {
             width: entryList.width
             height: Style.space(32)
             color: index === root.selectedIndex ? root.selectionFill : "transparent"
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onEntered: root.selectedIndex = index
+              onClicked: {
+                root.selectedIndex = index
+                if (root.mode === "list") root.openActions(root.filteredEntries[index])
+                else root.performAction()
+              }
+            }
+
             Text {
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
@@ -209,11 +296,12 @@ Panel {
           }
         }
 
+        // No matches for filter
         Column {
           anchors.centerIn: parent
           width: parent.width
           spacing: Style.space(8)
-          visible: entryList.count === 0 && root.filterText !== "" && root.mode === "list"
+          visible: root.mode === "list" && entryList.count === 0 && root.filterText !== ""
 
           Text {
             text: "󰈉"
@@ -233,6 +321,18 @@ Panel {
             horizontalAlignment: Text.AlignHCenter
             width: parent.width
           }
+        }
+
+        // Empty password store
+        Text {
+          anchors.centerIn: parent
+          width: parent.width
+          visible: root.mode === "list" && root.entries.length === 0 && root.filterText === ""
+          text: "No password entries found"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          horizontalAlignment: Text.AlignHCenter
         }
       }
     }
