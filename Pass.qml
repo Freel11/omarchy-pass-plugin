@@ -58,6 +58,7 @@ Panel {
       { label: "Type password", kind: "type" }
     ]
     if (root.hasOtp) list.push({ label: "Copy OTP", kind: "otp" })
+    list.push({ label: "Delete entry", kind: "delete" })
     root.actions = list
     root.mode = "actions"
     root.selectedIndex = 0
@@ -71,10 +72,21 @@ Panel {
     if (root.actions.length === 0) return
     var action = root.actions[root.selectedIndex]
     if (!action) return
+    if (action.kind === "delete") {
+      deleteDialog.message = "Delete \u201C" + root.currentEntry + "\u201D? This cannot be undone."
+      deleteDialog.entryName = root.currentEntry
+      deleteDialog.opened = true
+      return
+    }
     Quickshell.execDetached([
       "bash", root.sourceDir + "/do-action.sh", action.kind, root.currentEntry
     ])
     root.close()
+  }
+
+  function deleteEntry(name) {
+    deleter.command = ["bash", root.sourceDir + "/do-action.sh", "delete", name]
+    deleter.running = true
   }
 
   function backToList() {
@@ -162,6 +174,19 @@ Panel {
     stdout: StdioCollector { id: adderOut; waitForEnd: true }
     onExited: {
       entryLister.running = true
+    }
+  }
+
+  Process {
+    id: deleter
+    stdout: StdioCollector { id: deleterOut; waitForEnd: true }
+    onExited: {
+      root.mode = "list"
+      root.currentEntry = ""
+      root.actions = []
+      root.selectedIndex = 0
+      entryLister.running = true
+      Qt.callLater(function() { if (searchBox) searchBox.forceActiveFocus() })
     }
   }
 
@@ -514,6 +539,8 @@ Panel {
 
     ConfirmDialog {
       id: overwriteDialog
+      anchors.fill: parent
+      z: 10
       property string entryName: ""
       property string entryValue: ""
       message: ""
@@ -531,19 +558,45 @@ Panel {
         opened = false
         if (nameField) nameField.forceActiveFocus()
       }
-      Connections {
-        target: panel
-        ignoreUnknownSignals: true
-        function onActiveFocusChanged() {}
-      }
       Item {
         anchors.fill: parent
+        visible: overwriteDialog.opened
         focus: overwriteDialog.opened
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
           if (overwriteDialog.handleKey(event)) event.accepted = true
         }
-        visible: false
+      }
+    }
+
+    ConfirmDialog {
+      id: deleteDialog
+      anchors.fill: parent
+      z: 10
+      property string entryName: ""
+      message: ""
+      confirmText: "Delete"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      background: Color.popups.background
+      scrim: Util.alpha(Color.popups.background, 0.7)
+      opened: false
+      onConfirmed: {
+        root.deleteEntry(entryName)
+        opened = false
+      }
+      onCanceled: {
+        opened = false
+        if (entryList) entryList.forceActiveFocus()
+      }
+      Item {
+        anchors.fill: parent
+        visible: deleteDialog.opened
+        focus: deleteDialog.opened
+        Keys.priority: Keys.BeforeItem
+        Keys.onPressed: function(event) {
+          if (deleteDialog.handleKey(event)) event.accepted = true
+        }
       }
     }
   }
