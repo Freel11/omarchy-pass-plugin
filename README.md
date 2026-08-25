@@ -3,8 +3,8 @@
 A [pass](https://www.passwordstore.org/) integration for the
 [Omarchy](https://omarchy.org/) shell. Adds a key-glyph icon to the bar's
 right section — click it (or press a keybinding) to open a popover that
-searches your password store, then copy, type, or generate an OTP without
-leaving the keyboard.
+searches your password store, add new entries, then copy, type, or generate
+an OTP without leaving the keyboard.
 
 Built on the Omarchy plugin contract (Quickshell + QML) and themed through
 the bar's `foreground` / `Color.*` / `Style.*` tokens, so it matches whatever
@@ -21,6 +21,8 @@ theme is active.
   - **Type password** — decrypts and types at the cursor via `wtype`
   - **Copy OTP** — `pass otp -c <entry>` (only shown when `pass-otp` is installed)
 - Omarchy notification on every successful action
+- Add new entries via a plus icon in the header — name + value fields with
+  overwrite confirmation if an entry already exists
 - Honors `PASSWORD_STORE_DIR` for non-default store locations
 - No hardcoded paths — resolves its own directory via `Qt.resolvedUrl`
 
@@ -91,14 +93,27 @@ Then `hyprctl reload` to apply.
 7. `Esc` from the entry list clears the filter; `Esc` again dismisses.
 8. Click outside the popover to dismiss at any time.
 
+### Adding an entry
+
+1. Press the plus icon (󰐕) in the header, or `Tab` to it from the search
+   box and press `Enter`.
+2. Enter the entry name (e.g., `work/github` — slashes create subfolders).
+3. Enter the password or secret value.
+4. Press `Enter` or `Tab` to the **Save** button and press it.
+5. If an entry with that name already exists, a confirm dialog asks before
+   overwriting.
+6. After saving, the list refreshes and filters to the new entry.
+7. `Esc` at any time cancels back to the list.
+
 ## How it works
 
 | File              | Role                                                              |
 | ----------------- | ----------------------------------------------------------------- |
 | `manifest.json`   | Plugin contract: id, kinds (`bar-widget`), entry point, barWidget metadata |
-| `Pass.qml`        | Bar icon + popover — list mode + actions mode, keyboard nav, theming |
+| `Pass.qml`        | Bar icon + popover — list, actions, and add modes, keyboard nav, theming |
 | `list-entries.sh` | Lists `*.gpg` files under `$PASSWORD_STORE_DIR`, sorted by mtime  |
 | `do-action.sh`    | Runs `pass show -c` / `pass show \| wtype`/`pass otp -c` + notifies |
+| `add-entry.sh`    | Pipes a value to `pass insert -f -m` and notifies on success      |
 
 The plugin extends Omarchy's `Panel` base (which owns the IPC open/close
 lifecycle) and uses `KeyboardPanel` for the popover (layer-shell popup anchored
@@ -115,6 +130,7 @@ pass/
 ├── Pass.qml
 ├── list-entries.sh
 ├── do-action.sh
+├── add-entry.sh
 └── .gitignore
 ```
 

@@ -18,6 +18,8 @@ Panel {
   property string currentEntry: ""
   property var actions: []
   property bool hasOtp: false
+  property string pendingName: ""
+  property string pendingValue: ""
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.5)
@@ -86,6 +88,55 @@ Panel {
     })
   }
 
+  function openAdd() {
+    root.mode = "add"
+    root.pendingName = ""
+    root.pendingValue = ""
+    if (nameField) nameField.text = ""
+    if (valueField) valueField.text = ""
+    Qt.callLater(function() { if (nameField) nameField.forceActiveFocus() })
+  }
+
+  function cancelAdd() {
+    root.pendingName = ""
+    root.pendingValue = ""
+    root.mode = "list"
+    Qt.callLater(function() { if (searchBox) searchBox.forceActiveFocus() })
+  }
+
+  function entryExists(name) {
+    if (!name || root.entries.length === 0) return false
+    for (var i = 0; i < root.entries.length; i++) {
+      if (root.entries[i] === name) return true
+    }
+    return false
+  }
+
+  function doSave() {
+    var name = root.pendingName.trim()
+    var value = root.pendingValue
+    if (name === "" || value === "") return
+    if (root.entryExists(name)) {
+      overwriteDialog.message = "An entry named \u201C" + name + "\u201D already exists. Overwrite it?"
+      overwriteDialog.entryName = name
+      overwriteDialog.entryValue = value
+      overwriteDialog.opened = true
+      return
+    }
+    root.saveEntry(name, value)
+  }
+
+  function saveEntry(name, value) {
+    root.pendingName = ""
+    root.pendingValue = ""
+    root.mode = "list"
+    root.filterText = name
+    if (searchBox) searchBox.text = name
+    adder.command = ["bash", root.sourceDir + "/add-entry.sh", name, value]
+    adder.running = true
+    Qt.callLater(function() { if (searchBox) searchBox.forceActiveFocus() })
+  }
+
   onOpenedChanged: if (opened) {
     if (root.entries.length === 0) entryLister.running = true
     root.filterText = ""
@@ -103,6 +154,14 @@ Panel {
       var raw = entryListerOut.text || ""
       root.entries = raw.split("\n").filter(function(line) { return line.length > 0 })
       root.rebuildList()
+    }
+  }
+
+  Process {
+    id: adder
+    stdout: StdioCollector { id: adderOut; waitForEnd: true }
+    onExited: {
+      entryLister.running = true
     }
   }
 
@@ -142,11 +201,11 @@ Panel {
       anchors.fill: parent
       spacing: Style.space(12)
 
-      // ---------- Header: key glyph + "Pass" + subtitle ----------
+      // ---------- Header: key glyph + "Pass" + subtitle + action icon ----------
 
       Item {
         width: parent.width
-        implicitHeight: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight)
+        implicitHeight: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight, addButton.implicitHeight)
 
         Text {
           id: heroIcon
@@ -162,7 +221,8 @@ Panel {
           id: heroLabels
           anchors.left: heroIcon.right
           anchors.leftMargin: Style.space(14)
-          anchors.right: parent.right
+          anchors.right: addButton.left
+          anchors.rightMargin: addButton.visible ? Style.space(12) : 0
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(2)
 
@@ -177,9 +237,11 @@ Panel {
           }
 
           Text {
-            text: root.mode === "actions"
-              ? root.currentEntry
-              : (root.entries.length + " entries")
+            text: {
+              if (root.mode === "add") return "Add entry"
+              if (root.mode === "actions") return root.currentEntry
+              return root.entries.length + " entries"
+            }
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -187,6 +249,27 @@ Panel {
             font.letterSpacing: 1.2
             elide: Text.ElideRight
             width: parent.width
+          }
+        }
+
+        PanelActionButton {
+          id: addButton
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          iconText: root.mode === "add" ? "󰅖" : "󰐕"
+          tooltipText: root.mode === "add" ? "Cancel" : "Add entry"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          focusable: true
+          onClicked: {
+            if (root.mode === "add") root.cancelAdd()
+            else root.openAdd()
+          }
+          Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+              if (searchBox && searchBox.visible) { searchBox.forceActiveFocus(); event.accepted = true }
+              else if (nameField && nameField.visible) { nameField.forceActiveFocus(); event.accepted = true }
+            }
           }
         }
       }
@@ -220,6 +303,8 @@ Panel {
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
             if (root.filteredEntries.length > 0) root.openActions(root.filteredEntries[root.selectedIndex])
             event.accepted = true
+          } else if (event.key === Qt.Key_Tab) {
+            addButton.forceActiveFocus(); event.accepted = true
           }
         }
       }
@@ -227,6 +312,98 @@ Panel {
       PanelSeparator {
         visible: root.mode === "list"
         foreground: root.foreground
+      }
+
+      // ---------- Add mode: name + value fields ----------
+
+      Column {
+        id: addForm
+        visible: root.mode === "add"
+        width: parent.width
+        spacing: Style.space(10)
+
+        TextField {
+          id: nameField
+          width: parent.width
+          foreground: root.foreground
+          placeholderText: "Entry name (e.g., work/github)"
+          text: root.pendingName
+          onTextChanged: root.pendingName = text
+          Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape) {
+              root.cancelAdd(); event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+              if (valueField) valueField.forceActiveFocus(); event.accepted = true
+            } else if (event.key === Qt.Key_Tab) {
+              if (valueField) valueField.forceActiveFocus(); event.accepted = true
+            } else if (event.key === Qt.Key_Backtab) {
+              cancelButton.forceActiveFocus(); event.accepted = true
+            }
+          }
+        }
+
+        TextField {
+          id: valueField
+          width: parent.width
+          foreground: root.foreground
+          placeholderText: "Password or secret"
+          text: root.pendingValue
+          onTextChanged: root.pendingValue = text
+          Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape) {
+              root.cancelAdd(); event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+              root.doSave(); event.accepted = true
+            } else if (event.key === Qt.Key_Tab) {
+              saveButton.forceActiveFocus(); event.accepted = true
+            } else if (event.key === Qt.Key_Backtab) {
+              if (nameField) nameField.forceActiveFocus(); event.accepted = true
+            }
+          }
+        }
+
+        Row {
+          width: parent.width
+          layoutDirection: Qt.RightToLeft
+          spacing: Style.space(10)
+
+          Button {
+            id: saveButton
+            text: "Save"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            focusable: true
+            enabled: root.pendingName.trim() !== "" && root.pendingValue !== ""
+            onClicked: root.doSave()
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                root.cancelAdd(); event.accepted = true
+              } else if (event.key === Qt.Key_Tab) {
+                cancelButton.forceActiveFocus(); event.accepted = true
+              } else if (event.key === Qt.Key_Backtab) {
+                if (valueField) valueField.forceActiveFocus(); event.accepted = true
+              }
+            }
+          }
+
+          Button {
+            id: cancelButton
+            text: "Cancel"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            focusable: true
+            onClicked: root.cancelAdd()
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                root.cancelAdd(); event.accepted = true
+              } else if (event.key === Qt.Key_Tab) {
+                if (nameField) nameField.forceActiveFocus(); event.accepted = true
+              } else if (event.key === Qt.Key_Backtab) {
+                saveButton.forceActiveFocus(); event.accepted = true
+              }
+            }
+          }
+        }
       }
 
       PanelSectionHeader {
@@ -296,7 +473,6 @@ Panel {
           }
         }
 
-        // No matches for filter
         Column {
           anchors.centerIn: parent
           width: parent.width
@@ -323,7 +499,6 @@ Panel {
           }
         }
 
-        // Empty password store
         Text {
           anchors.centerIn: parent
           width: parent.width
@@ -334,6 +509,41 @@ Panel {
           font.pixelSize: Style.font.body
           horizontalAlignment: Text.AlignHCenter
         }
+      }
+    }
+
+    ConfirmDialog {
+      id: overwriteDialog
+      property string entryName: ""
+      property string entryValue: ""
+      message: ""
+      confirmText: "Overwrite"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      background: Color.popups.background
+      scrim: Util.alpha(Color.popups.background, 0.7)
+      opened: false
+      onConfirmed: {
+        root.saveEntry(entryName, entryValue)
+        opened = false
+      }
+      onCanceled: {
+        opened = false
+        if (nameField) nameField.forceActiveFocus()
+      }
+      Connections {
+        target: panel
+        ignoreUnknownSignals: true
+        function onActiveFocusChanged() {}
+      }
+      Item {
+        anchors.fill: parent
+        focus: overwriteDialog.opened
+        Keys.priority: Keys.BeforeItem
+        Keys.onPressed: function(event) {
+          if (overwriteDialog.handleKey(event)) event.accepted = true
+        }
+        visible: false
       }
     }
   }
