@@ -1,0 +1,14 @@
+# Editor artifacts
+*.swp
+*~
+.#*
+\#*#
+*.orig
+
+# Backup files
+*.bak
+*.bak.*
+
+# OS artifacts
+.DS_Store
+Thumbs.db

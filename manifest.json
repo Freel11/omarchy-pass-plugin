@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "pass",
+  "name": "Pass",
+  "author": "Freel11",
+  "version": "0.1.0",
+  "description": "Search and act on pass(1) entries",
+  "kinds": ["overlay"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Pass.qml"
+  }
+}
