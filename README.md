@@ -25,13 +25,13 @@ active.
 
 ## Requirements
 
-| Dependency | Required | Purpose |
-|------------|----------|---------|
-| `pass` | yes | password store CLI |
-| `wtype` | yes | typing passwords at the cursor |
-| `wl-copy` | yes | clipboard (pulled in by `pass` on Wayland) |
-| `notify-send` | yes | action confirmation (libnotify) |
-| `pass-otp` | no | enables the **Copy OTP** action |
+| Dependency    | Required | Purpose                                    |
+| ------------- | -------- | ------------------------------------------ |
+| `pass`        | yes      | password store CLI                         |
+| `wtype`       | yes      | typing passwords at the cursor             |
+| `wl-copy`     | yes      | clipboard (pulled in by `pass` on Wayland) |
+| `notify-send` | yes      | action confirmation (libnotify)            |
+| `pass-otp`    | no       | enables the **Copy OTP** action            |
 
 On Omarchy, `pass`, `wtype`, `wl-copy`, and `notify-send` ship with the system.
 For the optional OTP support:
@@ -47,7 +47,7 @@ Then restart the shell (`omarchy restart shell`) so the plugin re-detects it.
 Clone into the Omarchy user plugin directory:
 
 ```bash
-git clone https://github.com/<you>/omarchy-pass.git ~/.config/omarchy/plugins/pass
+git clone https://github.com/Freel11/omarchy-pass.git ~/.config/omarchy/plugins/pass
 omarchy plugin enable pass
 ```
 
@@ -92,12 +92,12 @@ hl.layer_rule({ match = { namespace = "pass" }, no_anim = true, animation = "non
 
 ## How it works
 
-| File | Role |
-|------|------|
-| `manifest.json` | Plugin contract: id, kinds (`overlay`), entry point, `keepLoaded` |
-| `Pass.qml` | Overlay UI — list mode + actions mode, keyboard nav, theming |
-| `list-entries.sh` | Lists `*.gpg` files under `$PASSWORD_STORE_DIR`, sorted by mtime |
-| `do-action.sh` | Runs `pass show -c` / `pass show | wtype` / `pass otp -c` + notifies |
+| File              | Role                                                              |
+| ----------------- | ----------------------------------------------------------------- | ------------------------------- |
+| `manifest.json`   | Plugin contract: id, kinds (`overlay`), entry point, `keepLoaded` |
+| `Pass.qml`        | Overlay UI — list mode + actions mode, keyboard nav, theming      |
+| `list-entries.sh` | Lists `*.gpg` files under `$PASSWORD_STORE_DIR`, sorted by mtime  |
+| `do-action.sh`    | Runs `pass show -c` / `pass show                                  | wtype`/`pass otp -c` + notifies |
 
 The overlay loads entries once per session (via a `Process` running
 `list-entries.sh`) and filters them in JS on each keystroke — no subprocess per
