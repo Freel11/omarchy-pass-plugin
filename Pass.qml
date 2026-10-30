@@ -3,6 +3,7 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 Panel {
@@ -20,8 +21,13 @@ Panel {
   property bool hasOtp: false
   property string pendingName: ""
   property string pendingValue: ""
+  property int passwordLength: 25
+  property bool includeSymbols: true
+  property string generationError: ""
+  property int addSession: 0
+  readonly property bool generatingPassword: generator.active
 
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.5)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property color selectionFill: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.15)
@@ -100,20 +106,46 @@ Panel {
     })
   }
 
-  function openAdd() {
-    root.mode = "add"
+  function clearAdd() {
+    root.addSession++
+    if (generator.running) generator.running = false
     root.pendingName = ""
     root.pendingValue = ""
+    root.generationError = ""
     if (nameField) nameField.text = ""
     if (valueField) valueField.text = ""
+    overwriteDialog.opened = false
+    overwriteDialog.entryName = ""
+    overwriteDialog.entryValue = ""
+  }
+
+  function openAdd() {
+    root.clearAdd()
+    root.mode = "add"
     Qt.callLater(function() { if (nameField) nameField.forceActiveFocus() })
   }
 
   function cancelAdd() {
-    root.pendingName = ""
-    root.pendingValue = ""
+    root.clearAdd()
     root.mode = "list"
     Qt.callLater(function() { if (searchBox) searchBox.forceActiveFocus() })
+  }
+
+  function generatePassword() {
+    if (root.mode !== "add" || root.generatingPassword) return
+    root.generationError = ""
+    generator.session = root.addSession
+    generator.requestedLength = root.passwordLength
+    generator.outputReady = false
+    generator.exitReady = false
+    generator.succeeded = false
+    generator.active = true
+    generator.command = [
+      "bash", root.sourceDir + "/generate-password.sh",
+      String(root.passwordLength), root.includeSymbols ? "true" : "false"
+    ]
+    generator.running = true
+    cancelButton.forceActiveFocus()
   }
 
   function entryExists(name) {
@@ -125,6 +157,7 @@ Panel {
   }
 
   function doSave() {
+    if (root.generatingPassword) return
     var name = root.pendingName.trim()
     var value = root.pendingValue
     if (name === "" || value === "") return
@@ -139,8 +172,7 @@ Panel {
   }
 
   function saveEntry(name, value) {
-    root.pendingName = ""
-    root.pendingValue = ""
+    root.clearAdd()
     root.mode = "list"
     root.filterText = name
     if (searchBox) searchBox.text = name
@@ -149,7 +181,11 @@ Panel {
     Qt.callLater(function() { if (searchBox) searchBox.forceActiveFocus() })
   }
 
-  onOpenedChanged: if (opened) {
+  onOpenedChanged: {
+    if (!opened) {
+      root.clearAdd()
+      return
+    }
     if (root.entries.length === 0) entryLister.running = true
     root.filterText = ""
     if (searchBox) searchBox.text = ""
@@ -174,6 +210,48 @@ Panel {
     stdout: StdioCollector { id: adderOut; waitForEnd: true }
     onExited: {
       entryLister.running = true
+    }
+  }
+
+  Process {
+    id: generator
+    property bool active: false
+    property int session: 0
+    property int requestedLength: 0
+    property bool outputReady: false
+    property bool exitReady: false
+    property bool succeeded: false
+
+    function finish() {
+      // Process exit and stream completion can arrive in either order.
+      if (!active || !outputReady || !exitReady) return
+      var password = String(generatorOut.text || "").replace(/\n$/, "")
+      active = false
+      if (session !== root.addSession || root.mode !== "add" || !root.opened) return
+      if (!succeeded || password.length !== requestedLength) {
+        root.generationError = "Could not generate a password. Please try again."
+        return
+      }
+      root.pendingValue = password
+      valueField.text = password
+      Qt.callLater(function() {
+        if (root.opened && root.mode === "add") valueField.forceActiveFocus()
+      })
+    }
+
+    stdout: StdioCollector {
+      id: generatorOut
+      waitForEnd: true
+      onStreamFinished: {
+        generator.outputReady = true
+        generator.finish()
+      }
+    }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode, exitStatus) {
+      generator.succeeded = exitCode === 0 && exitStatus === 0
+      generator.exitReady = true
+      generator.finish()
     }
   }
 
@@ -291,7 +369,9 @@ Panel {
             else root.openAdd()
           }
           Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+            if (event.key === Qt.Key_Escape && root.mode === "add") {
+              root.cancelAdd(); event.accepted = true
+            } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
               if (searchBox && searchBox.visible) { searchBox.forceActiveFocus(); event.accepted = true }
               else if (nameField && nameField.visible) { nameField.forceActiveFocus(); event.accepted = true }
             }
@@ -339,7 +419,7 @@ Panel {
         foreground: root.foreground
       }
 
-      // ---------- Add mode: name + value fields ----------
+      // ---------- Add mode: name, value, and password generation ----------
 
       Column {
         id: addForm
@@ -362,7 +442,9 @@ Panel {
             } else if (event.key === Qt.Key_Tab) {
               if (valueField) valueField.forceActiveFocus(); event.accepted = true
             } else if (event.key === Qt.Key_Backtab) {
-              cancelButton.forceActiveFocus(); event.accepted = true
+              if (generateButton.enabled) generateButton.forceActiveFocus()
+              else cancelButton.forceActiveFocus()
+              event.accepted = true
             }
           }
         }
@@ -373,6 +455,7 @@ Panel {
           foreground: root.foreground
           placeholderText: "Password or secret"
           text: root.pendingValue
+          readOnly: root.generatingPassword
           onTextChanged: root.pendingValue = text
           Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Escape) {
@@ -380,7 +463,9 @@ Panel {
             } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
               root.doSave(); event.accepted = true
             } else if (event.key === Qt.Key_Tab) {
-              saveButton.forceActiveFocus(); event.accepted = true
+              if (lengthField.enabled) lengthField.field.forceActiveFocus()
+              else cancelButton.forceActiveFocus()
+              event.accepted = true
             } else if (event.key === Qt.Key_Backtab) {
               if (nameField) nameField.forceActiveFocus(); event.accepted = true
             }
@@ -389,27 +474,73 @@ Panel {
 
         Row {
           width: parent.width
-          layoutDirection: Qt.RightToLeft
-          spacing: Style.space(10)
+          spacing: Style.space(12)
 
-          Button {
-            id: saveButton
-            text: "Save"
+          NumberField {
+            id: lengthField
+            width: Style.space(120)
+            fieldWidth: width
+            label: "Password length"
+            from: 1
+            to: 128
+            value: root.passwordLength
             foreground: root.foreground
             fontFamily: root.fontFamily
-            focusable: true
-            enabled: root.pendingName.trim() !== "" && root.pendingValue !== ""
-            onClicked: root.doSave()
+            enabled: !root.generatingPassword
+            opacity: enabled ? 1 : 0.5
+            onModified: function(value) { root.passwordLength = value }
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                root.cancelAdd(); event.accepted = true
+              } else if (event.key === Qt.Key_Tab) {
+                symbolsToggle.forceActiveFocus(); event.accepted = true
+              } else if (event.key === Qt.Key_Backtab) {
+                valueField.forceActiveFocus(); event.accepted = true
+              }
+            }
+          }
+
+          Toggle {
+            id: symbolsToggle
+            width: parent.width - lengthField.width - parent.spacing
+            height: lengthField.implicitHeight
+            label: "Include symbols"
+            titleSize: Style.font.body
+            checked: root.includeSymbols
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            enabled: !root.generatingPassword
+            opacity: enabled ? 1 : 0.5
+            onClicked: {
+              root.includeSymbols = !root.includeSymbols
+              symbolsToggle.forceActiveFocus()
+            }
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) {
                 root.cancelAdd(); event.accepted = true
               } else if (event.key === Qt.Key_Tab) {
                 cancelButton.forceActiveFocus(); event.accepted = true
               } else if (event.key === Qt.Key_Backtab) {
-                if (valueField) valueField.forceActiveFocus(); event.accepted = true
+                lengthField.field.forceActiveFocus(); event.accepted = true
               }
             }
           }
+        }
+
+        Text {
+          width: parent.width
+          visible: root.generationError !== ""
+          text: root.generationError
+          textFormat: Text.PlainText
+          color: Commons.Color.urgent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
+
+        Flow {
+          width: parent.width
+          spacing: Style.space(10)
 
           Button {
             id: cancelButton
@@ -422,9 +553,56 @@ Panel {
               if (event.key === Qt.Key_Escape) {
                 root.cancelAdd(); event.accepted = true
               } else if (event.key === Qt.Key_Tab) {
+                if (saveButton.enabled) saveButton.forceActiveFocus()
+                else if (generateButton.enabled) generateButton.forceActiveFocus()
+                else nameField.forceActiveFocus()
+                event.accepted = true
+              } else if (event.key === Qt.Key_Backtab) {
+                if (symbolsToggle.enabled) symbolsToggle.forceActiveFocus()
+                else valueField.forceActiveFocus()
+                event.accepted = true
+              }
+            }
+          }
+
+          Button {
+            id: saveButton
+            text: "Save"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            focusable: true
+            enabled: !root.generatingPassword && root.pendingName.trim() !== "" && root.pendingValue !== ""
+            opacity: enabled ? 1 : 0.5
+            onClicked: root.doSave()
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                root.cancelAdd(); event.accepted = true
+              } else if (event.key === Qt.Key_Tab) {
+                generateButton.forceActiveFocus(); event.accepted = true
+              } else if (event.key === Qt.Key_Backtab) {
+                cancelButton.forceActiveFocus(); event.accepted = true
+              }
+            }
+          }
+
+          Button {
+            id: generateButton
+            text: root.generatingPassword ? "Generating..." : "Generate password"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            focusable: true
+            enabled: !root.generatingPassword
+            opacity: enabled ? 1 : 0.5
+            onClicked: root.generatePassword()
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                root.cancelAdd(); event.accepted = true
+              } else if (event.key === Qt.Key_Tab) {
                 if (nameField) nameField.forceActiveFocus(); event.accepted = true
               } else if (event.key === Qt.Key_Backtab) {
-                saveButton.forceActiveFocus(); event.accepted = true
+                if (saveButton.enabled) saveButton.forceActiveFocus()
+                else cancelButton.forceActiveFocus()
+                event.accepted = true
               }
             }
           }
@@ -442,6 +620,7 @@ Panel {
 
       Item {
         width: parent.width
+        visible: root.mode !== "add"
         height: root.mode === "list"
           ? Math.min(Math.max(entryList.contentHeight, Style.space(200)), Style.space(400))
           : Math.min(Math.max(entryList.contentHeight, Style.space(120)), Style.space(280))
@@ -547,8 +726,8 @@ Panel {
       confirmText: "Overwrite"
       foreground: root.foreground
       fontFamily: root.fontFamily
-      background: Color.popups.background
-      scrim: Util.alpha(Color.popups.background, 0.7)
+      background: Commons.Color.popups.background
+      scrim: Util.alpha(Commons.Color.popups.background, 0.7)
       opened: false
       onConfirmed: {
         root.saveEntry(entryName, entryValue)
@@ -578,8 +757,8 @@ Panel {
       confirmText: "Delete"
       foreground: root.foreground
       fontFamily: root.fontFamily
-      background: Color.popups.background
-      scrim: Util.alpha(Color.popups.background, 0.7)
+      background: Commons.Color.popups.background
+      scrim: Util.alpha(Commons.Color.popups.background, 0.7)
       opened: false
       onConfirmed: {
         root.deleteEntry(entryName)

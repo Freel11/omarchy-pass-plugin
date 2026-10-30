@@ -23,6 +23,8 @@ theme is active.
 - Omarchy notification on every successful action
 - Add new entries via a plus icon in the header — name + value fields with
   overwrite confirmation if an entry already exists
+- Generate passwords in the add form, with adjustable length (1–128 characters)
+  and an **Include symbols** toggle — review or edit the result before saving
 - Honors `PASSWORD_STORE_DIR` for non-default store locations
 - No hardcoded paths — resolves its own directory via `Qt.resolvedUrl`
 
@@ -98,12 +100,27 @@ Then `hyprctl reload` to apply.
 1. Press the plus icon (󰐕) in the header, or `Tab` to it from the search
    box and press `Enter`.
 2. Enter the entry name (e.g., `work/github` — slashes create subfolders).
-3. Enter the password or secret value.
-4. Press `Enter` or `Tab` to the **Save** button and press it.
+3. Enter the password or secret value, or choose a **Password length** and
+   **Include symbols**, then press **Generate password**. The defaults are 25
+   characters with symbols enabled. Generation fills the value field; pressing
+   it again replaces the current value. You can generate before entering a name.
+4. Review or edit the value, then press `Enter` in the value field or activate
+   **Save**.
 5. If an entry with that name already exists, a confirm dialog asks before
    overwriting.
 6. After saving, the list refreshes and filters to the new entry.
 7. `Esc` at any time cancels back to the list.
+
+The add form has three actions: **Cancel**, **Save**, and **Generate password**.
+`Tab` / `Shift+Tab` moves through the name, value, length, symbols toggle, and
+action buttons, skipping disabled controls. Use `Up` / `Down` to adjust length
+and `Space` or `Enter` to toggle symbols or activate a button.
+
+Generation uses the operating system's secure random source (`/dev/urandom`).
+With symbols enabled, the allowed characters are ASCII letters, digits, and
+punctuation; disabling symbols restricts output to letters and digits. Settings
+affect the next generated password. **Save** writes the entry to the store;
+**Cancel** or dismissing the popover discards the draft.
 
 ## How it works
 
@@ -114,6 +131,7 @@ Then `hyprctl reload` to apply.
 | `list-entries.sh` | Lists `*.gpg` files under `$PASSWORD_STORE_DIR`, sorted by mtime  |
 | `do-action.sh`    | Runs `pass show -c` / `pass show \| wtype`/`pass otp -c` + notifies |
 | `add-entry.sh`    | Pipes a value to `pass insert -f -m` and notifies on success      |
+| `generate-password.sh` | Generates a password of the selected length and character set for the add form |
 
 The plugin extends Omarchy's `Panel` base (which owns the IPC open/close
 lifecycle) and uses `KeyboardPanel` for the popover (layer-shell popup anchored
@@ -131,6 +149,7 @@ pass/
 ├── list-entries.sh
 ├── do-action.sh
 ├── add-entry.sh
+├── generate-password.sh
 └── .gitignore
 ```
 
